@@ -1,0 +1,40 @@
+{{ .Chart.Name }} {{ .Chart.AppVersion }} has been deployed as "{{ .Release.Name }}".
+
+1. Verify the API is ready:
+
+     kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "nvo.fullname" . }}-{{ .Values.api.name }}
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "nvo.fullname" . }}-{{ .Values.api.name }} 8000:{{ .Values.api.service.port }}
+     curl -fsS http://localhost:8000/ready
+
+{{- if .Values.ingress.enabled }}
+
+2. Open the dashboard:
+
+     https://{{ .Values.ingress.host }}
+{{- else }}
+
+2. No ingress is enabled. Port-forward the frontend:
+
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "nvo.fullname" . }}-{{ .Values.web.name }} 3000:{{ .Values.web.service.port }}
+{{- end }}
+
+{{- if .Values.config.demoMode }}
+
+WARNING: DEMO_MODE is enabled. Synthetic telemetry will be generated and
+labelled as demo data. Disable it for any real deployment.
+{{- end }}
+
+{{- if not .Values.telemetryAgent.enabled }}
+
+NOTE: The telemetry agent DaemonSet is disabled, so no GPU telemetry will be
+collected from cluster nodes. Enable it with --set telemetryAgent.enabled=true
+on clusters with NVIDIA hardware and the NVIDIA device plugin installed.
+{{- end }}
+
+Secrets are NOT created by this chart. Create "{{ .Values.secrets.existingSecret }}" before installing:
+
+  kubectl -n {{ .Release.Namespace }} create secret generic {{ .Values.secrets.existingSecret }} \
+    --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
+    --from-literal=DATABASE_URL='postgresql+asyncpg://user:pass@host:5432/nvo' \
+    --from-literal=REDIS_URL='redis://host:6379/0' \
+    --from-literal=BOOTSTRAP_ADMIN_PASSWORD='<strong-password>'

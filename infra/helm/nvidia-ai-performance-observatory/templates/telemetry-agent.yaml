@@ -1,0 +1,48 @@
+{{- if .Values.telemetryAgent.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "nvo.fullname" . }}-{{ .Values.telemetryAgent.name }}
+  labels:
+    {{- include "nvo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ .Values.telemetryAgent.name }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "nvo.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: {{ .Values.telemetryAgent.name }}
+  template:
+    metadata:
+      labels:
+        {{- include "nvo.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: {{ .Values.telemetryAgent.name }}
+    spec:
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.telemetryAgent.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.telemetryAgent.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: agent
+          image: {{ include "nvo.image" (list . .Values.telemetryAgent) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: NVO_API_URL
+              value: http://{{ include "nvo.fullname" . }}-{{ .Values.api.name }}:{{ .Values.api.service.port }}
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef: { fieldPath: spec.nodeName }
+            - name: NVO_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.agentSecret }}
+                  key: NVO_API_KEY
+            - name: TELEMETRY_INTERVAL_SECONDS
+              value: {{ .Values.telemetryAgent.intervalSeconds | quote }}
+            - name: DATA_SOURCE
+              value: production
+          resources: {{- toYaml .Values.telemetryAgent.resources | nindent 12 }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+{{- end }}

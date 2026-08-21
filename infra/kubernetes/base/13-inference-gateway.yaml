@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nvo-inference-gateway
+  namespace: nvo
+  labels:
+    app.kubernetes.io/name: nvo-inference-gateway
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nvo-inference-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nvo-inference-gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: gateway
+          image: ghcr.io/example/nvo-inference-gateway:1.0.0
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: NVO_API_URL
+              value: http://nvo-api.nvo.svc.cluster.local:8000
+            - name: NVO_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nvo-agent-credentials
+                  key: NVO_API_KEY
+            - name: INFERENCE_BACKEND
+              value: vllm
+            - name: INFERENCE_BASE_URL
+              value: http://vllm.inference.svc.cluster.local:8000/v1
+            - name: DATA_SOURCE
+              value: production
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: nvo-secrets, key: SECRET_KEY }
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nvo-inference-gateway
+  namespace: nvo
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nvo-inference-gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nvo-inference-gateway
+  namespace: nvo
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nvo-inference-gateway
