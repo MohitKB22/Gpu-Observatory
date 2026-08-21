@@ -1,0 +1,44 @@
+[project]
+name = "nvidia-ai-performance-observatory-api"
+version = "1.0.0"
+description = "NVIDIA AI Performance Observatory - backend API"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "C4", "SIM", "RUF"]
+# B008: FastAPI's Depends()/Query() defaults are the documented idiom.
+# RUF012: SQLAlchemy declarative attributes are not mutable class defaults.
+# RUF001/RUF002/RUF003: typographic characters (x, ., ->, sigma, degree) are
+#   intentional in human-facing diagnostic copy.
+ignore = ["B008", "RUF012", "RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+ignore_missing_imports = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+warn_redundant_casts = true
+no_implicit_optional = true
+plugins = []
+exclude = ["alembic/"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+addopts = "-q"
