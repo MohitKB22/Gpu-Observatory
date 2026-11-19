@@ -1,0 +1,26 @@
+[project]
+name = "ai-inference-observatory-backend"
+version = "1.1.0"
+description = "Model serving and performance observability API"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+asyncio_default_test_loop_scope = "function"
+filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "ASYNC"]
+ignore = [
+    "B008",      # FastAPI dependencies are declared as call defaults
+    "ASYNC109",  # per-request httpx timeouts are passed explicitly on purpose
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]

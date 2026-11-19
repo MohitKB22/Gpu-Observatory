@@ -1,0 +1,39 @@
+# Render Blueprint: the public demo as ONE free web service (dashboard + API, root Dockerfile).
+# PostgreSQL lives on Neon's free plan (no expiry); paste its connection string when Render asks
+# for DATABASE_URL. See DEPLOYMENT.md, "Public demo on Render + Neon".
+
+services:
+  - type: web
+    name: ai-inference-observatory
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    # Deploy a new commit on main only after its CI checks pass.
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PORT
+        value: "10000"
+      - key: APP_ENV
+        value: production
+      - key: LOG_FORMAT
+        value: json
+      - key: DEMO_MODE
+        value: "true"
+      - key: PUBLIC_DEMO
+        value: "true"
+      - key: PUBLIC_DEMO_SOURCE_URL
+        value: https://github.com/MohitKB22/Gpu-Observatory
+      # Fewer background checks let Neon's free compute scale to zero between visits.
+      - key: HEALTH_CHECK_INTERVAL_SECONDS
+        value: "300"
+      - key: DB_POOL_SIZE
+        value: "3"
+      - key: DB_MAX_OVERFLOW
+        value: "2"

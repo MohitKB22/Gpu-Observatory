@@ -1,0 +1,14 @@
+# Optional override for a host with NVIDIA GPUs and the NVIDIA Container Toolkit installed.
+# Gives the backend container access to the driver so NVML can report real GPU telemetry.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+
+services:
+  backend:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, utility]
