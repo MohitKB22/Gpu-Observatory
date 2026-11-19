@@ -1,0 +1,10 @@
+# Local development: run only PostgreSQL in Docker and the backend/frontend on your machine.
+# Publishes the database on 127.0.0.1 with the credentials the backend uses by default
+# (observatory / observatory / observatory), so no .env is needed.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db     (or: make dev-db)
+
+services:
+  db:
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"

@@ -1,281 +1,370 @@
-# NVIDIA AI Performance Observatory
+# AI Inference Observatory
 
-Observability and performance-optimisation platform for NVIDIA AI inference
-workloads. It collects GPU, host and inference telemetry, persists and
-aggregates it, detects anomalies, and produces root-cause diagnoses backed by
-the measurements it actually observed.
+Model serving and performance observability for LLM inference endpoints. Register OpenAI-compatible,
+vLLM and Hugging Face endpoints, run prompts against them, and watch latency percentiles, throughput,
+errors, connection health and serving infrastructure, all from requests the platform actually recorded.
 
-```
-GPU / host telemetry ──┐
-inference requests ────┼──► aggregation ──► diagnostics ──► "GPU utilisation is
-batching signals ──────┘                    (15 rules)      32.8% because batches
-                                                            average 2.3 of 32"
-```
+It runs fully offline in **demo mode** (no GPU, no paid API) and switches to **real mode** by registering
+real endpoints. Demo data is labelled everywhere it appears and can be excluded with one switch.
 
----
+![Overview](docs/screenshots/overview.png)
 
-## What makes this different
+## Contents
 
-**No fabricated data.** Every displayed number traces to a stored sample. A
-metric that was not measured returns `null` and renders as `—`, never `0`. With
-no NVIDIA GPU present the platform states that plainly instead of inventing
-hardware statistics.
+- [Modules](#modules)
+- [Data integrity rules](#data-integrity-rules)
+- [Quick start](#quick-start-docker)
+- [Connecting a real endpoint](#connecting-a-real-endpoint)
+- [Architecture](#architecture)
+- [How metrics are calculated](#how-metrics-are-calculated)
+- [API](#api)
+- [Configuration](#configuration)
+- [Local development](#local-development)
+- [Testing](#testing)
+- [Security](#security)
+- [Known limitations](#known-limitations)
+- [Deployment guide](DEPLOYMENT.md)
 
-**Demo data is quarantined.** Every telemetry row carries a `data_source` of
-`production` or `demo`; every read filters on it. Synthetic data can never be
-presented as production telemetry.
+## Modules
 
-**Diagnosis without an LLM.** Fifteen deterministic rules run against stored
-measurements and produce the full structured diagnosis — title, severity, root
-cause, evidence, metrics, impact, recommendations and confidence. A language
-model is optional and only ever narrates findings it did not compute.
-
-**The agent cannot do damage.** All 11 agent tools are read-only. There is no
-tool to run a command, write data, or read secrets — enforced by absence of the
-capability, not by prompt instructions.
-
----
-
-## Screens
-
-| Screen | Purpose |
+| Module | What it does |
 |---|---|
-| **Overview** | Eight KPIs, GPU/latency/throughput charts, the latest AI diagnosis, active alerts |
-| **GPU Monitor** | Per-device inventory, live readings, throttle reasons, process occupancy, host system |
-| **Inference** | Percentiles, latency distribution, stage breakdown, batching analytics, request table |
-| **Models** | Model registry with registration, per-model measured performance, deployments |
-| **Comparisons** | Two-to-six-model comparison with a computed recommendation |
-| **AI Diagnostics** | Run diagnoses, ask the Performance Copilot, review anomalies and history |
-| **Cost** | Estimated GPU-hours, cost per request and per million tokens, pricing profiles |
-| **Alerts** | Active → acknowledged → resolved lifecycle, rule configuration |
-| **Workloads** | Switch demo scenarios, generate synthetic load |
-| **Settings** | Session, connection status, dashboard defaults, agent capabilities |
+| **Overview** | Requests, P95 latency, generation speed and error rate for 1h/6h/24h/7d with change vs the previous period; traffic + P95 chart; live system health (database, CPU, memory, GPU); per-model status and traffic. |
+| **Model Registry** | Register, edit, enable/disable and delete models; encrypted API keys; on-demand connection checks plus a background check every minute; per-model check history. |
+| **Inference Playground** | Pick an enabled model, set system prompt, temperature and max tokens, run inference, and see the response with measured latency, token counts (exact or estimated) and generation speed. Every run is recorded. |
+| **Performance Analytics** | P50/P95/P99 latency over time, request rate, token throughput, error rate, per-model comparison table and P95-by-model chart, filterable by model and window. |
+| **Infrastructure** | Host CPU, memory, disk and load; the API worker process; CPU/memory/GPU history; GPU utilisation, memory, temperature and power via NVML or nvidia-smi; live queue and KV-cache usage scraped from vLLM servers; database and endpoint health. |
+| **Request Logs** | Searchable history (prompt, response, error text, request ID) with model, status, source, data-source and time filters, pagination, and a detail panel with the full request, response, parameters, metrics and error. Filters live in the URL, so views can be shared. |
 
----
-
-## Quick start
-
-Requires Docker and Docker Compose. No NVIDIA hardware is needed.
-
-```bash
-git clone <repository-url>
-cd nvidia-ai-performance-observatory
-
-cp .env.example .env
-# Set at minimum:
-#   SECRET_KEY               (openssl rand -base64 48)
-#   BOOTSTRAP_ADMIN_PASSWORD (12+ characters)
-
-docker compose up -d --build
-./scripts/healthcheck.sh
-```
-
-| Service | URL |
+| Model Registry | Playground |
 |---|---|
-| Dashboard | http://localhost:3000 |
-| API documentation | http://localhost:8000/docs |
-| Prometheus | http://localhost:9090 |
-| Grafana | http://localhost:3001 (admin/admin) |
+| ![Model registry](docs/screenshots/model-registry.png) | ![Playground](docs/screenshots/playground.png) |
+| **Performance Analytics** | **Infrastructure** |
+| ![Analytics](docs/screenshots/performance-analytics.png) | ![Infrastructure](docs/screenshots/infrastructure.png) |
+| **Request Logs** | **Recorded failure** |
+| ![Logs](docs/screenshots/request-logs.png) | ![Failure detail](docs/screenshots/request-detail-error.png) |
 
-Sign in with `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD`. The stack
-starts in Demo Mode and backfills 90 minutes of labelled synthetic telemetry, so
-every screen has data immediately.
+## Data integrity rules
 
-### Local development without Docker
+These are enforced in code and covered by tests:
 
-```bash
-make setup          # backend virtualenv + frontend dependencies
-make env            # create .env
-make migrate        # apply migrations
-make dev-api        # terminal 1 — http://localhost:8000
-make dev-web        # terminal 2 — http://localhost:3000
-```
+- **Demo data is always labelled.** Demo models use the `demo` provider; every request they serve and
+  every seeded sample row is stored with `is_demo = true`. Every analytics response reports how many
+  demo and real requests it includes, and the UI shows a banner whenever demo data contributes.
+  The global *Data source* selector switches between *All*, *Real only* and *Demo only*.
+  Outside demo mode the default is *Real only*.
+- **No invented GPU numbers.** GPU metrics come from NVML or `nvidia-smi`. When neither is available,
+  the API returns `available: false` with the reason and the UI shows an "unavailable" state.
+- **Exact vs estimated tokens.** Counts are `exact` only when the provider reported all of them
+  (OpenAI-compatible `usage`). Otherwise they are estimated at ~4 characters/token and stored as
+  `estimated`; the UI prefixes them with `~` and labels them.
+- **Real timings.** Latency is measured in the backend around the actual provider call
+  (`time.perf_counter`), including failures.
+- **No pretend operations.** *Enabled* only controls whether the Observatory sends traffic to a model.
+  The app never claims to deploy, start or stop a model.
+- **API keys stay on the backend.** They are encrypted at rest and never returned by the API.
 
-SQLite works for local development:
-`DATABASE_URL=sqlite+aiosqlite:///./nvo.db`
+## Quick start (Docker)
 
----
-
-## Demo Mode
-
-Demo Mode generates coherent synthetic telemetry for seven scenarios. Each
-produces physically consistent signals, so the diagnostics engine has something
-real to reason about.
-
-| Scenario | Signals | Expected diagnosis |
-|---|---|---|
-| Healthy GPU | High utilisation, batches near max, stable latency | `healthy` |
-| Under-batching | Batch 2.3/32, GPU ~33%, low queue time | `under_batching` |
-| VRAM pressure | VRAM >96%, elevated errors, heavy tail | `vram_saturation` |
-| CPU bottleneck | CPU ~96%, GPU ~37%, high queue time | `cpu_bottleneck` |
-| Latency spike | P95 rising sharply, P99/P50 ≈ 8× | `latency_spike` |
-| Throughput degradation | Throughput declining, demand steady | `throughput_degradation` |
-| Thermal throttling | >85 °C, SM clock at 62% of rated | `thermal_throttling` |
-
-Switch scenarios from **Workloads**, or:
+Requirements: Docker with Compose v2.24+.
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/demo/scenario" \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"scenario":"under_batching"}'
+docker compose up --build
 ```
 
-Demo data lives in its own namespace and is deleted independently:
+| URL | |
+|---|---|
+| http://localhost:8080 | Dashboard |
+| http://localhost:8000/api/docs | Interactive API docs (OpenAPI) |
+| http://localhost:8000/metrics | Prometheus metrics |
 
-```bash
-curl -X DELETE "http://localhost:8000/api/v1/demo/data" -H "Authorization: Bearer $TOKEN"
-```
+The first start runs database migrations, registers three demo models (`demo-swift-1b`,
+`demo-orbit-8b`, `demo-atlas-70b`) and seeds seven days of labelled sample traffic. No `.env` file is
+needed. To change settings, `cp .env.example .env` and edit it.
 
----
+Ports bind to `127.0.0.1` by default because the dashboard has no built-in login
+(see [Security](#security)).
 
-## Running with real NVIDIA GPUs
+## Connecting a real endpoint
 
-Requires the NVIDIA driver, Container Toolkit, and `DEMO_MODE=false`.
+Open **Model Registry → Register model**:
 
-```bash
-# 1. Install the NVIDIA Container Toolkit, then verify:
-docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+| Provider | Endpoint URL | Model ID | Token counts |
+|---|---|---|---|
+| OpenAI-compatible (OpenAI, Together, Groq, Mistral, LM Studio, …) | API base incl. `/v1`, e.g. `https://api.openai.com/v1` | e.g. `gpt-4o-mini` | exact (from `usage`) |
+| Ollama on the Docker host | `http://host.docker.internal:11434/v1` | e.g. `llama3.1` | exact |
+| vLLM | `http://gpu-server:8000/v1` | the served model name | exact |
+| Hugging Face Inference Endpoint / TGI | the endpoint URL | the repo ID (for reference) | estimated |
+| Hugging Face serverless | `https://api-inference.huggingface.co/models/<repo>` | the repo ID | estimated |
 
-# 2. Mint an agent credential:
-python scripts/create_api_key.py --name telemetry-agent \
-  --scopes telemetry:read telemetry:write
+Click **Check connection** (a cheap `GET /models` or `/health`, no tokens spent), then select the
+model in the **Playground**. Set **Data source → Real only** to see only real traffic. Turn demo mode off
+for production with `DEMO_MODE=false`; see [DEPLOYMENT.md](DEPLOYMENT.md#going-to-production).
 
-# 3. Start with the GPU profile:
-DEMO_MODE=false AGENT_API_KEY=nvo_live_... docker compose --profile gpu up -d
-```
-
-On Kubernetes the agent runs as a DaemonSet restricted to nodes labelled
-`nvidia.com/gpu.present=true`. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
-
-If no GPU is detected the platform reports `nvml_available: false` with a
-specific reason and shows an explicit "NVIDIA GPU unavailable" notice.
-
----
+vLLM models also get live **running/waiting requests and KV-cache usage** on the Infrastructure page,
+scraped from the server's `/metrics`. This is the way to watch a remote GPU server.
 
 ## Architecture
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for seven Mermaid diagrams
-covering system architecture, telemetry flow, inference flow, diagnosis flow,
-the ER model, and both deployment topologies.
+```
+ Browser ──► nginx (frontend container) ──/api──► FastAPI backend ──► PostgreSQL 16
+             static React build                    │  ├─ providers: demo · OpenAI-compatible · vLLM · Hugging Face ──► model endpoints
+                                                   │  ├─ health-check scheduler (every 60 s) ──────────────────────► model endpoints
+                                                   │  ├─ system sampler: psutil + NVML / nvidia-smi
+                                                   │  └─ vLLM /metrics scraper ───────────────────────────────────► vLLM servers
+                                                   └─ /metrics ◄── Prometheus (optional)
+```
 
-**Tech stack**
+```
+.
+├── backend/
+│   ├── app/
+│   │   ├── api/            routes, dependencies, error handlers, request-logging middleware
+│   │   ├── db/             SQLAlchemy base + async engine/session factory
+│   │   ├── models/         ORM tables and enums
+│   │   ├── schemas/        Pydantic request/response models (validation lives here)
+│   │   ├── services/       business logic: inference, registry, health checks, analytics, logs, demo seed
+│   │   ├── providers/      one module per inference backend behind a shared interface
+│   │   ├── monitoring/     psutil, GPU, vLLM scraping, background sampler, Prometheus metrics
+│   │   ├── config.py       environment-driven settings
+│   │   ├── security.py     API-key encryption
+│   │   ├── cli.py          maintenance commands (reseed / purge demo data)
+│   │   └── main.py         app factory and lifespan
+│   ├── alembic/            migrations
+│   ├── tests/              pytest suite (runs against PostgreSQL)
+│   └── Dockerfile
+├── frontend/
+│   ├── src/
+│   │   ├── api/            typed API client and endpoint functions
+│   │   ├── components/     layout, UI primitives, charts
+│   │   ├── features/       one folder per module (overview, models, playground, analytics, infrastructure, logs)
+│   │   ├── context/        data-source selection, toasts
+│   │   ├── hooks/ lib/     data fetching, formatting, helpers
+│   │   └── test/           test setup and helpers
+│   ├── nginx/              production server config (SPA + /api proxy + security headers)
+│   └── Dockerfile
+├── docs/screenshots/
+├── docker-compose.yml       db + backend + frontend
+├── docker-compose.gpu.yml   optional: expose NVIDIA GPUs to the backend
+├── docker-compose.dev.yml   optional: publish the database for local development
+├── .env.example
+├── DEPLOYMENT.md
+└── .github/workflows/ci.yml
+```
 
-| Layer | Choice |
+### Data model
+
+| Table | Purpose |
 |---|---|
-| Frontend | Next.js 16, React 19, TypeScript (strict), Tailwind, TanStack Query, Zustand, Recharts |
-| Backend | Python 3.11, FastAPI, Pydantic v2, SQLAlchemy 2 (async), Alembic |
-| Data | PostgreSQL (asyncpg), Redis, SQLite for development and tests |
-| Telemetry | NVML (`nvidia-ml-py`), DCGM exporter adapter, psutil, `prometheus-client` |
-| Inference | vLLM, NVIDIA Triton, OpenAI-compatible and local adapters |
-| AI | Provider abstraction (OpenAI / Anthropic / Ollama / none) over a deterministic rules engine |
-| Infrastructure | Docker, Compose, Kubernetes, Helm, Prometheus, Grafana, GitHub Actions |
+| `registered_models` | Endpoint configuration, encrypted API key, enabled flag, latest connection-check status. |
+| `inference_requests` | One row per attempt: prompt, response, parameters, status, error kind/message, `is_demo`, `source`, model name snapshot. |
+| `request_metrics` | Narrow 1:1 table of numeric measurements (latency, tokens, token-count source, tokens/s), kept separate so analytics scan small rows instead of large text. |
+| `health_checks` | History of connection checks (pruned after `HEALTH_CHECK_RETENTION_DAYS`). |
 
----
+Deleting a model keeps its request history (`model_id` becomes NULL; the name is preserved) and
+removes its check history. Schema changes go through Alembic; a test fails if the models drift from
+the migrations.
+
+### Design references
+
+The UI follows the data-dense dashboard guidance from
+[UI/UX Pro Max](https://github.com/Chonwai/dsh-uupm) (used as a methodology reference, not a template).
+That means compact KPI cards and a dense grid; status always shown as colour plus text; visible focus
+rings, labelled inputs, inline errors announced with `role="alert"` and skeleton loading states; series
+told apart by line style (solid/dashed/dotted) as well as colour; comparison bars sorted by value;
+`prefers-reduced-motion` respected; layouts checked at 390 px and 1440 px.
+
+Palette: background `#0B1220`, sidebar `#101827`, cards `#151F30`, elevated `#1B293D`, borders
+`#263449`, text `#F8FAFC` / `#94A3B8`, blue `#3B82F6`, violet `#8B5CF6`, green `#22C55E`,
+amber `#F59E0B`, red `#EF4444`. Typography is Inter, with JetBrains Mono for figures, both self-hosted.
+
+## How metrics are calculated
+
+All aggregation runs in PostgreSQL (`percentile_cont`, `FILTER`) over the selected window and data source.
+
+| Metric | Definition |
+|---|---|
+| P50 / P95 / P99 latency | Continuous percentiles of end-to-end latency over **successful** requests (so 60 s timeouts don't distort serving latency; they appear in the error rate). |
+| Error rate | Failed requests ÷ all requests. |
+| Request rate | Requests ÷ window length (shown per second, minute or hour, whichever is readable). |
+| Generation speed (tok/s) | Mean over successful requests of `completion_tokens ÷ end-to-end latency`. Requests are not streamed, so time-to-first-token is not separated out. |
+| Token throughput | All prompt + completion tokens ÷ window length. |
+| Exact token share | Successful requests whose counts were reported by the provider. |
+| Δ vs previous | The same metric over the immediately preceding window of equal length. |
 
 ## API
 
-Interactive documentation at `/docs`; the OpenAPI schema at `/openapi.json`.
+Base path `/api`. Full interactive documentation at `/api/docs`.
 
+| Method | Path | |
+|---|---|---|
+| GET | `/health` | Liveness + database check (503 when the database is unreachable) |
+| GET | `/system/info` | Version, environment, demo mode, default data source |
+| GET | `/overview?window=&data_source=` | Overview page payload |
+| GET | `/analytics?window=&data_source=&model_id=` | Summary, time series and per-model comparison |
+| GET / POST | `/models` | List / register models |
+| GET / PATCH / DELETE | `/models/{id}` | Read / partially update / delete |
+| POST | `/models/{id}/check` | Run a connection check now |
+| GET | `/models/{id}/health-checks?limit=` | Check history |
+| POST | `/inference` | Run and record a completion (see below) |
+| GET | `/infrastructure` | Host, worker, GPU, database, endpoint and vLLM server snapshot |
+| GET | `/infrastructure/history` | In-memory utilisation samples |
+| GET | `/logs?search=&model_id=&status=&source=&data_source=&window=&page=&page_size=` | Request history |
+| GET | `/logs/{id}` | Full request record |
+| GET | `/metrics` (no `/api` prefix) | Prometheus exposition |
+
+`POST /api/inference` returns **200 with `status: "error"`** when the upstream endpoint fails
+(timeout, HTTP error, bad response), because the attempt was executed and recorded. Requests that never
+reach a provider (unknown or disabled model, invalid input) return 4xx. Errors use one shape:
+`{"error": {"code": "...", "message": "...", "details": [{"field": "...", "message": "..."}]}}`.
+
+```bash
+curl -s localhost:8000/api/inference -H 'content-type: application/json' \
+  -d '{"model_id": "<uuid>", "prompt": "Hello", "temperature": 0.2, "max_tokens": 64}'
 ```
-GET    /health                              liveness
-GET    /ready                               readiness (checks dependencies)
-GET    /metrics                             Prometheus exposition
 
-POST   /api/v1/auth/login                   obtain a token pair
-GET    /api/v1/gpus                         list GPUs
-GET    /api/v1/gpus/{id}                    device detail + processes
-GET    /api/v1/gpus/{id}/metrics            raw samples (paginated)
-GET    /api/v1/system/metrics               host metrics
-GET    /api/v1/overview                     dashboard KPIs
-GET    /api/v1/models                       model registry
-POST   /api/v1/models                       register a model
-GET    /api/v1/inference/metrics            percentiles and throughput
-GET    /api/v1/inference/latency            latency histogram
-GET    /api/v1/batches                      batching analytics
-GET    /api/v1/comparisons/models           side-by-side comparison
-GET    /api/v1/anomalies                    detected anomalies
-GET    /api/v1/alerts                       alerts
-POST   /api/v1/alerts/{id}/acknowledge      acknowledge
-GET    /api/v1/cost                         cost estimate
-POST   /api/v1/diagnostics                  run a diagnosis
-GET    /api/v1/diagnostics/history          past diagnoses
-POST   /api/v1/agent/chat                   ask the Performance Copilot
-WS     /ws/telemetry                        live telemetry stream
+## Configuration
+
+All settings are environment variables (see [.env.example](.env.example) for the annotated list).
+
+| Variable | Default | |
+|---|---|---|
+| `APP_ENV` | `development` | `production` refuses to start without a real `SECRET_KEY` |
+| `SECRET_KEY` | insecure placeholder | Encrypts stored API keys; 32+ random chars; keep stable |
+| `DATABASE_URL` | compose `db` service | `postgres://`, `postgresql://` and `postgresql+psycopg://` accepted |
+| `DEMO_MODE` / `DEMO_SEED_HISTORY` / `DEMO_SIMULATE_LATENCY` | `true` | Demo models, sample history, simulated latency |
+| `HEALTH_CHECK_INTERVAL_SECONDS` | `60` | Background checks of enabled models; `0` disables |
+| `HEALTH_CHECK_RETENTION_DAYS` | `7` | Check history retention |
+| `SYSTEM_SAMPLE_INTERVAL_SECONDS` / `SYSTEM_HISTORY_SIZE` | `5` / `720` | Utilisation sampling (≈1 hour of history) |
+| `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `json` | Structured JSON logs to stdout |
+| `CORS_ORIGINS` | localhost dev ports | Only needed when the frontend is on another origin |
+| `WEB_CONCURRENCY` | `1` | Uvicorn workers (each runs its own sampler and scheduler) |
+| `BIND_ADDRESS`, `FRONTEND_PORT`, `BACKEND_PORT` | `127.0.0.1`, `8080`, `8000` | Compose port publishing |
+| `VITE_API_BASE_URL` (frontend build arg) | empty | Absolute API origin when not served same-origin |
+
+## Local development
+
+Requirements: Python 3.12–3.14, Node 20.19+ or 22.12+, PostgreSQL 13+.
+Run the commands below from the directories shown; the backend virtualenv lives in `backend/.venv`.
+
+### 1. Start PostgreSQL
+
+The backend's default connection is `postgresql://observatory:observatory@localhost:5432/observatory`.
+Either option below creates exactly that, so no `.env` file is needed.
+
+**Docker** (Docker Desktop must be running):
+
+```bash
+make dev-db      # = docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db
 ```
 
-Full reference: [docs/API.md](docs/API.md).
+**Homebrew on macOS** (no Docker):
 
----
+```bash
+brew install postgresql@16
+brew services start postgresql@16        # also starts it at every login
+"$(brew --prefix postgresql@16)/bin/psql" postgres \
+  -c "CREATE ROLE observatory LOGIN PASSWORD 'observatory' CREATEDB;" \
+  -c "CREATE DATABASE observatory OWNER observatory;"
+```
+
+**An existing server:** create a database and put its URL in `backend/.env`
+(`cp .env.example backend/.env`, then set `DATABASE_URL=postgresql://user:password@host:5432/dbname`).
+
+If the database is unreachable, the backend and Alembic stop with one line naming the host, port and
+cause (for example, `Cannot connect to PostgreSQL at localhost:5432/observatory: connection refused`)
+instead of a driver traceback.
+
+### 2. Backend
+
+```bash
+cd backend
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+.venv/bin/alembic upgrade head
+.venv/bin/uvicorn --factory app.main:create_app --reload --port 8000
+```
+
+### 3. Frontend (second terminal)
+
+```bash
+cd frontend
+npm ci
+npm run dev                    # http://localhost:5173, proxies /api to localhost:8000
+```
+
+### Maintenance commands
+
+```bash
+cd backend
+.venv/bin/python -m app.cli reseed-demo   # regenerate labelled sample history now
+.venv/bin/python -m app.cli purge-demo    # delete demo models and demo requests (set DEMO_MODE=false first)
+# In Docker: docker compose exec backend python -m app.cli purge-demo
+```
+
+New migration after changing models: `alembic revision --autogenerate -m "describe change"`, review, then `alembic upgrade head`.
 
 ## Testing
 
 ```bash
-make test        # backend (180 tests) + frontend (31 tests)
-make verify      # lint + types + tests + production build
+cd backend
+.venv/bin/pytest                               # uses observatory_test on the local server
+.venv/bin/ruff check . && .venv/bin/ruff format --check .
+
+cd ../frontend
+npm test && npm run lint && npm run typecheck && npm run build
 ```
 
-| Suite | Coverage |
-|---|---|
-| Backend unit | Statistics, collectors, demo generator, guard, RBAC |
-| Backend API | Every endpoint, auth, RBAC, pagination, validation, error envelopes |
-| Diagnostics | All seven scenarios end-to-end from seeded telemetry |
-| Security | Injection resistance, error hygiene, secret non-disclosure, config validation |
-| Frontend | Formatters, API client (refresh/retry), state components, error boundaries |
+The backend suite runs against real PostgreSQL. By default it uses an `observatory_test` database on the
+same server and with the same credentials as local development, and creates it on first run (the
+`observatory` role from step 1 has `CREATEDB`). To use another database, set `TEST_DATABASE_URL`. Its name
+must contain `test`, because every run drops and re-migrates all of its tables; the suite refuses any other name.
 
-See [docs/TESTING.md](docs/TESTING.md).
+**Backend (102 tests, PostgreSQL 16):** model CRUD, validation, duplicate names, encrypted keys,
+connection checks (healthy, auth failure, unreachable); inference through demo, OpenAI-compatible,
+vLLM and Hugging Face providers with a mocked transport, covering exact and estimated tokens, upstream
+HTTP errors, timeouts, malformed responses and disabled models; analytics percentiles against hand-computed
+values, data-source filtering, time series, overview deltas; log search (including literal `%`), filters,
+pagination and detail; infrastructure, GPU-unavailable reporting, vLLM metric scraping, Prometheus output,
+request-ID handling, no GPU series exported without a GPU; clear startup and migration errors when the
+database is unreachable; demo seeding, reseeding and purging without touching real data; migrations
+matching the ORM models.
 
----
+**Frontend (32 tests, Vitest + Testing Library):** formatters, model-form validation and payloads,
+stat-card deltas, and page-level interaction tests for the Model Registry, Playground, Request Logs and
+Overview (demo labelling, data-source switching, error and retry states) against a mocked API.
 
-## Deployment
+## Security
 
-```bash
-# Kubernetes
-kubectl apply -k infra/kubernetes/base
-
-# Helm
-helm install nvo infra/helm/nvidia-ai-performance-observatory \
-  --namespace nvo --create-namespace \
-  --set ingress.host=observatory.example.com \
-  --set telemetryAgent.enabled=true
-```
-
-Secrets are never templated into manifests — create them out-of-band. See
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and [docs/SECURITY.md](docs/SECURITY.md).
-
----
-
-## Documentation
-
-| Document | Contents |
-|---|---|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Design principles, 7 diagrams, module layout |
-| [API.md](docs/API.md) | Endpoint reference, auth, pagination, errors |
-| [DATABASE.md](docs/DATABASE.md) | Schema, indexes, retention, migrations |
-| [AI_AGENT.md](docs/AI_AGENT.md) | Rules engine, tools, safety model, prompt guard |
-| [TELEMETRY.md](docs/TELEMETRY.md) | Collectors, ingestion, aggregation, Prometheus |
-| [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Compose, Kubernetes, Helm, GPU enablement |
-| [SECURITY.md](docs/SECURITY.md) | Auth, RBAC, rate limiting, agent boundaries |
-| [TESTING.md](docs/TESTING.md) | Strategy, suites, how to run |
-| [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common failures and fixes |
-| [CONTRIBUTING.md](docs/CONTRIBUTING.md) | Workflow, standards, review criteria |
-
----
+- **No built-in authentication.** Anyone who can reach the dashboard can register endpoints and spend
+  their tokens. Keep the default `127.0.0.1` binding, or put it behind an authenticating reverse proxy
+  or VPN. [DEPLOYMENT.md](DEPLOYMENT.md#protecting-the-dashboard) has examples.
+- API keys are encrypted with Fernet using a key derived from `SECRET_KEY`, never logged and never returned.
+- Production mode refuses the default or short `SECRET_KEY`.
+- Endpoint URLs must be http(s) without embedded credentials. Outbound requests do not follow redirects,
+  so an endpoint can't bounce the `Authorization` header to another host.
+- Prompts and responses are stored in PostgreSQL and are not written to logs.
+- nginx sends a strict Content-Security-Policy, `X-Frame-Options: DENY` and `nosniff`.
+- Input limits: prompt 32k characters, system prompt 8k, `max_tokens` 1–8192, temperature 0–2,
+  timeout 1–600 s.
+- Containers run as non-root (backend) with health checks.
 
 ## Known limitations
 
-- **Per-process GPU accounting** requires NVML process APIs, which are
-  unavailable in some virtualised and MIG configurations. The UI states this
-  rather than showing an empty table without explanation.
-- **Cost is an estimate**, computed as observed GPU-hours × a configurable
-  rate. It is not billing data and is labelled as an estimate everywhere.
-- **The bundled PostgreSQL and Redis manifests** are for evaluation. Use a
-  managed service or an operator in production.
-- **The local inference adapter performs no model computation.** It exists so
-  the gateway and its instrumentation can be exercised without a serving
-  backend, and it says so in its own response payload.
-- **Model comparison needs traffic on both models.** With data on only one, the
-  tool declines to recommend rather than guessing.
-
-## License
-
-Apache 2.0 — see [LICENSE](LICENSE).
+- **No user accounts or RBAC**; see [Security](#security).
+- **No streaming.** Responses are requested non-streamed, so time-to-first-token is not measured, and
+  generation speed is completion tokens over end-to-end latency.
+- **Host metrics describe the backend's machine.** psutil runs inside the backend container; CPU count and
+  memory reflect the host kernel, not container cgroup limits. GPU metrics require the backend to run on
+  the GPU host (`docker-compose.gpu.yml`); otherwise use vLLM `/metrics` scraping for remote GPU servers.
+- **Utilisation history is in memory** (≈1 hour, per worker) and resets on restart. Use the `/metrics`
+  endpoint with Prometheus for long-term retention.
+- **Hugging Face token counts are estimated** because TGI does not report prompt tokens by default.
+- **Token estimates** use ~4 characters/token and can be off by 20–30% for code or non-English text.
+- **Log search uses `ILIKE`**, which scans text. For millions of rows, add a `pg_trgm` GIN index or ship
+  logs to a search engine. There is no automatic retention policy for request history.
+- **One process per background job.** With `WEB_CONCURRENCY > 1`, each worker runs its own sampler and
+  health-check loop.
+- **Demo models come back on restart** while `DEMO_MODE=true`. Set it to `false` and run `purge-demo`
+  to remove them permanently.
+- The CI workflow is included but was not executed as part of this build; see the verification notes in
+  [DEPLOYMENT.md](DEPLOYMENT.md#verification-status).
