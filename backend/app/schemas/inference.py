@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 MAX_PROMPT_CHARS = 32_000
 MAX_SYSTEM_PROMPT_CHARS = 8_000
+MAX_TOKENS = 8192
 PROMPT_PREVIEW_CHARS = 160
 
 
@@ -14,7 +15,7 @@ class InferenceCreate(BaseModel):
     prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
     system_prompt: str | None = Field(default=None, max_length=MAX_SYSTEM_PROMPT_CHARS)
     temperature: float = Field(default=0.7, ge=0, le=2)
-    max_tokens: int = Field(default=256, ge=1, le=8192)
+    max_tokens: int = Field(default=256, ge=1, le=MAX_TOKENS)
     # Where the request came from, for filtering logs. Seeded demo data uses a third value
     # that clients cannot submit.
     source: Literal["playground", "api"] = "api"

@@ -4,11 +4,12 @@ import logging
 import time
 from datetime import UTC, datetime
 
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import ConflictError
 from app.models import InferenceRequest, RegisteredModel, RequestMetrics
-from app.models.enums import RequestStatus
+from app.models.enums import RequestSource, RequestStatus
 from app.monitoring.prometheus import record_inference
 from app.providers.base import CompletionRequest, CompletionResult, ProviderError
 from app.providers.registry import ProviderRegistry
@@ -122,3 +123,19 @@ def _report(record: InferenceRequest, latency_ms: float) -> None:
             "error_kind": record.error_kind,
         },
     )
+
+
+async def prune_visitor_requests(session: AsyncSession, keep: int) -> None:
+    """Keep only the newest `keep` demo Playground runs, so a public demo's database cannot
+    grow without bound. Seeded sample history and real requests are never touched."""
+    visitor_runs = (InferenceRequest.source == RequestSource.PLAYGROUND.value) & InferenceRequest.is_demo.is_(True)
+    cutoff = await session.scalar(
+        select(InferenceRequest.created_at)
+        .where(visitor_runs)
+        .order_by(InferenceRequest.created_at.desc())
+        .offset(keep)
+        .limit(1)
+    )
+    if cutoff is not None:
+        await session.execute(delete(InferenceRequest).where(visitor_runs, InferenceRequest.created_at <= cutoff))
+        await session.commit()

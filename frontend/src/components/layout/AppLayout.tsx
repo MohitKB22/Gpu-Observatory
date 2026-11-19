@@ -2,7 +2,9 @@ import {
   Activity,
   BarChart3,
   Boxes,
+  ExternalLink,
   FlaskConical,
+  Globe,
   LayoutDashboard,
   Menu,
   ScrollText,
@@ -69,6 +71,7 @@ export function AppLayout() {
       </header>
 
       <main id="main" className="mx-auto max-w-[1440px] px-4 py-6 lg:px-8">
+        <PublicDemoBanner />
         <Suspense fallback={<PageSkeleton />}>
           <Outlet />
         </Suspense>
@@ -170,6 +173,31 @@ function ModeIndicator() {
       <FlaskConical className="size-3.5" aria-hidden />
       Demo mode
     </span>
+  );
+}
+
+function PublicDemoBanner() {
+  const { systemInfo } = useDataSource();
+  if (!systemInfo?.public_demo) return null;
+  return (
+    <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-primary/30 bg-primary/10 px-3.5 py-2.5 text-xs text-blue-100">
+      <Globe className="size-4 shrink-0 text-blue-300" aria-hidden />
+      <p className="flex-1">
+        <span className="font-semibold">Public demo.</span> Everything runs on simulated demo models; registering
+        real endpoints is turned off here.
+      </p>
+      {systemInfo.public_demo_source_url && (
+        <a
+          href={systemInfo.public_demo_source_url}
+          className="inline-flex items-center gap-1 font-medium text-blue-300 underline-offset-2 hover:underline"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Source code &amp; self-hosting
+          <ExternalLink className="size-3.5" aria-hidden />
+        </a>
+      )}
+    </div>
   );
 }
 

@@ -23,3 +23,13 @@ class ConflictError(AppError):
 class InvalidRequestError(AppError):
     status_code = 422
     code = "validation_error"
+
+
+class ForbiddenError(AppError):
+    status_code = 403
+    code = "forbidden"
+
+
+class RateLimitedError(AppError):
+    status_code = 429
+    code = "rate_limited"

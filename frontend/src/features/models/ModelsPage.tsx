@@ -14,6 +14,7 @@ import { Modal } from '@/components/ui/Overlay';
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/States';
 import { ModelStatusIndicator } from '@/components/ui/StatusIndicator';
 import { DataTable, Td, Th } from '@/components/ui/Table';
+import { useDataSource } from '@/context/DataSourceContext';
 import { useToast } from '@/context/ToastContext';
 import { useApiQuery } from '@/hooks/useApiQuery';
 import { useNow } from '@/hooks/useNow';
@@ -24,6 +25,8 @@ import { ModelFormModal } from './ModelFormModal';
 export default function ModelsPage() {
   const query = useApiQuery(listModels, [], { refreshIntervalMs: 30_000 });
   const { notify } = useToast();
+  const { systemInfo } = useDataSource();
+  const readOnly = Boolean(systemInfo?.public_demo);
   const now = useNow(10_000);
 
   const [editing, setEditing] = useState<Model | null>(null);
@@ -97,21 +100,28 @@ export default function ModelsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Model Registry"
-        description="Register inference endpoints, verify connectivity and control which models receive traffic."
+        description={
+          readOnly
+            ? 'Registered inference endpoints and their connection status.'
+            : 'Register inference endpoints, verify connectivity and control which models receive traffic.'
+        }
         actions={
           <>
             <RefreshControl updatedAt={query.updatedAt} isFetching={query.isFetching} onRefresh={query.refetch} />
-            <Button variant="primary" icon={<Plus className="size-4" aria-hidden />} onClick={openCreate}>
-              Register model
-            </Button>
+            {!readOnly && (
+              <Button variant="primary" icon={<Plus className="size-4" aria-hidden />} onClick={openCreate}>
+                Register model
+              </Button>
+            )}
           </>
         }
       />
 
       <p className="flex items-start gap-2 text-xs text-muted">
         <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Status comes from connection checks (on demand and every minute in the background). Enabling or disabling a
-        model only changes whether the Observatory sends it traffic; it never deploys or stops the model itself.
+        {readOnly
+          ? 'This public demo shows the registry read-only. Run the project yourself to register OpenAI-compatible, vLLM or Hugging Face endpoints.'
+          : 'Status comes from connection checks (on demand and every minute in the background). Enabling or disabling a model only changes whether the Observatory sends it traffic; it never deploys or stops the model itself.'}
       </p>
 
       {query.error && !models ? (
@@ -125,9 +135,11 @@ export default function ModelsPage() {
             title="No models registered yet"
             description="Connect an OpenAI-compatible API, a vLLM server or a Hugging Face endpoint. Use the demo provider to try the dashboard without credentials."
             action={
-              <Button variant="primary" icon={<Plus className="size-4" aria-hidden />} onClick={openCreate}>
-                Register model
-              </Button>
+              readOnly ? undefined : (
+                <Button variant="primary" icon={<Plus className="size-4" aria-hidden />} onClick={openCreate}>
+                  Register model
+                </Button>
+              )
             }
           />
         </Card>
@@ -190,12 +202,16 @@ export default function ModelsPage() {
                         </div>
                       </Td>
                       <Td>
-                        <Switch
-                          checked={model.is_enabled}
-                          disabled={toggling.has(model.id)}
-                          onChange={(enabled) => handleToggle(model, enabled)}
-                          label={`${model.is_enabled ? 'Disable' : 'Enable'} ${model.name} in the Observatory`}
-                        />
+                        {readOnly ? (
+                          <span className="text-xs text-muted">{model.is_enabled ? 'Enabled' : 'Disabled'}</span>
+                        ) : (
+                          <Switch
+                            checked={model.is_enabled}
+                            disabled={toggling.has(model.id)}
+                            onChange={(enabled) => handleToggle(model, enabled)}
+                            label={`${model.is_enabled ? 'Disable' : 'Enable'} ${model.name} in the Observatory`}
+                          />
+                        )}
                       </Td>
                       <Td align="right">
                         <div className="flex justify-end gap-1">
@@ -207,16 +223,20 @@ export default function ModelsPage() {
                           >
                             Check connection
                           </Button>
-                          <IconButton label={`Edit ${model.name}`} onClick={() => openEdit(model)}>
-                            <Pencil className="size-4" aria-hidden />
-                          </IconButton>
-                          <IconButton
-                            label={`Delete ${model.name}`}
-                            onClick={() => setDeleting(model)}
-                            className="hover:text-red-300"
-                          >
-                            <Trash2 className="size-4" aria-hidden />
-                          </IconButton>
+                          {!readOnly && (
+                            <>
+                              <IconButton label={`Edit ${model.name}`} onClick={() => openEdit(model)}>
+                                <Pencil className="size-4" aria-hidden />
+                              </IconButton>
+                              <IconButton
+                                label={`Delete ${model.name}`}
+                                onClick={() => setDeleting(model)}
+                                className="hover:text-red-300"
+                              >
+                                <Trash2 className="size-4" aria-hidden />
+                              </IconButton>
+                            </>
+                          )}
                         </div>
                       </Td>
                     </tr>

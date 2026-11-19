@@ -14,10 +14,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.api.error_handlers import register_error_handlers
 from app.api.middleware import RequestLoggingMiddleware
+from app.api.public_demo import SlidingWindowRateLimiter
 from app.api.routes import analytics, inference, infrastructure, logs, metrics, models, system
 from app.config import Settings, get_settings
 from app.db.connectivity import DatabaseUnavailableError, check_database_connection
 from app.db.session import create_engine, create_session_factory
+from app.frontend import mount_frontend
 from app.logging_config import configure_logging
 from app.monitoring.gpu_metrics import GpuMonitor
 from app.monitoring.sampler import SystemSampler
@@ -71,13 +73,21 @@ def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBase
         app.state.providers = providers
         app.state.secret_box = secret_box
         app.state.sampler = sampler
+        app.state.rate_limiter = SlidingWindowRateLimiter()
 
         if settings.demo_mode:
             await bootstrap_demo_data(session_factory, settings.demo_seed_history)
         sampler.start()
         if settings.health_check_interval_seconds > 0:
             scheduler.start()
-        logger.info("backend started", extra={"environment": settings.app_env, "demo_mode": settings.demo_mode})
+        logger.info(
+            "backend started",
+            extra={
+                "environment": settings.app_env,
+                "demo_mode": settings.demo_mode,
+                "public_demo": settings.public_demo,
+            },
+        )
 
         try:
             yield
@@ -112,4 +122,6 @@ def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBase
         metrics.router,
     ):
         app.include_router(router)
+    if settings.static_dir:
+        mount_frontend(app, settings.static_dir)
     return app

@@ -7,6 +7,8 @@ errors, connection health and serving infrastructure, all from requests the plat
 It runs fully offline in **demo mode** (no GPU, no paid API) and switches to **real mode** by registering
 real endpoints. Demo data is labelled everywhere it appears and can be excluded with one switch.
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/MohitKB22/Gpu-Observatory)
+
 ![Overview](docs/screenshots/overview.png)
 
 ## Contents
@@ -14,6 +16,7 @@ real endpoints. Demo data is labelled everywhere it appears and can be excluded 
 - [Modules](#modules)
 - [Data integrity rules](#data-integrity-rules)
 - [Quick start](#quick-start-docker)
+- [Public demo deployment](#public-demo-deployment)
 - [Connecting a real endpoint](#connecting-a-real-endpoint)
 - [Architecture](#architecture)
 - [How metrics are calculated](#how-metrics-are-calculated)
@@ -85,6 +88,17 @@ needed. To change settings, `cp .env.example .env` and edit it.
 Ports bind to `127.0.0.1` by default because the dashboard has no built-in login
 (see [Security](#security)).
 
+## Public demo deployment
+
+`render.yaml` deploys a locked public demo on free tiers: one Render web service (the root `Dockerfile`
+builds the dashboard and serves it from the API process) plus a free Neon PostgreSQL database. Click
+**Deploy to Render** above and paste the Neon connection string when asked; step-by-step instructions are in
+[DEPLOYMENT.md](DEPLOYMENT.md#public-demo-on-render--neon-free).
+
+With `PUBLIC_DEMO=true` the Model Registry is read-only (registering, editing and deleting return 403), so
+the server never calls a URL a visitor supplied. The Playground runs demo models only, with tighter input
+limits and a per-visitor and global rate limit, and only the newest visitor runs are kept in the database.
+
 ## Connecting a real endpoint
 
 Open **Model Registry → Register model**:
@@ -147,6 +161,8 @@ scraped from the server's `/metrics`. This is the way to watch a remote GPU serv
 ├── docker-compose.yml       db + backend + frontend
 ├── docker-compose.gpu.yml   optional: expose NVIDIA GPUs to the backend
 ├── docker-compose.dev.yml   optional: publish the database for local development
+├── Dockerfile               single-container image (dashboard served by the API), used by render.yaml
+├── render.yaml              Render Blueprint for the free public demo
 ├── .env.example
 ├── DEPLOYMENT.md
 └── .github/workflows/ci.yml
@@ -239,6 +255,12 @@ All settings are environment variables (see [.env.example](.env.example) for the
 | `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `json` | Structured JSON logs to stdout |
 | `CORS_ORIGINS` | localhost dev ports | Only needed when the frontend is on another origin |
 | `WEB_CONCURRENCY` | `1` | Uvicorn workers (each runs its own sampler and scheduler) |
+| `PUBLIC_DEMO` | `false` | Read-only registry, demo-only Playground, rate limits; for internet-facing demos |
+| `PUBLIC_DEMO_SOURCE_URL` | empty | "Source code" link shown in the public-demo banner |
+| `PUBLIC_DEMO_REQUESTS_PER_MINUTE` / `PUBLIC_DEMO_GLOBAL_REQUESTS_PER_MINUTE` | `10` / `60` | Playground runs per visitor IP / for everyone |
+| `PUBLIC_DEMO_MAX_PROMPT_CHARS` / `PUBLIC_DEMO_MAX_TOKENS` | `4000` / `1024` | Input limits in a public demo |
+| `PUBLIC_DEMO_KEPT_REQUESTS` | `5000` | Visitor runs kept in the database (oldest removed first) |
+| `STATIC_DIR` | empty | Serve a built frontend from the API process (set by the root `Dockerfile`) |
 | `BIND_ADDRESS`, `FRONTEND_PORT`, `BACKEND_PORT` | `127.0.0.1`, `8080`, `8000` | Compose port publishing |
 | `VITE_API_BASE_URL` (frontend build arg) | empty | Absolute API origin when not served same-origin |
 
@@ -319,25 +341,28 @@ same server and with the same credentials as local development, and creates it o
 `observatory` role from step 1 has `CREATEDB`). To use another database, set `TEST_DATABASE_URL`. Its name
 must contain `test`, because every run drops and re-migrates all of its tables; the suite refuses any other name.
 
-**Backend (102 tests, PostgreSQL 16):** model CRUD, validation, duplicate names, encrypted keys,
+**Backend (115 tests, PostgreSQL 16):** model CRUD, validation, duplicate names, encrypted keys,
 connection checks (healthy, auth failure, unreachable); inference through demo, OpenAI-compatible,
 vLLM and Hugging Face providers with a mocked transport, covering exact and estimated tokens, upstream
 HTTP errors, timeouts, malformed responses and disabled models; analytics percentiles against hand-computed
 values, data-source filtering, time series, overview deltas; log search (including literal `%`), filters,
 pagination and detail; infrastructure, GPU-unavailable reporting, vLLM metric scraping, Prometheus output,
 request-ID handling, no GPU series exported without a GPU; clear startup and migration errors when the
-database is unreachable; demo seeding, reseeding and purging without touching real data; migrations
+database is unreachable; public-demo restrictions (read-only registry, demo-only inference, input limits,
+rate limiting, bounded storage); single-container static serving, including SPA fallback and path traversal; demo seeding, reseeding and purging without touching real data; migrations
 matching the ORM models.
 
-**Frontend (32 tests, Vitest + Testing Library):** formatters, model-form validation and payloads,
+**Frontend (35 tests, Vitest + Testing Library):** formatters, model-form validation and payloads,
 stat-card deltas, and page-level interaction tests for the Model Registry, Playground, Request Logs and
-Overview (demo labelling, data-source switching, error and retry states) against a mocked API.
+Overview (demo labelling, data-source switching, error and retry states, public-demo banner and read-only
+registry) against a mocked API.
 
 ## Security
 
 - **No built-in authentication.** Anyone who can reach the dashboard can register endpoints and spend
   their tokens. Keep the default `127.0.0.1` binding, or put it behind an authenticating reverse proxy
-  or VPN. [DEPLOYMENT.md](DEPLOYMENT.md#protecting-the-dashboard) has examples.
+  or VPN. [DEPLOYMENT.md](DEPLOYMENT.md#protecting-the-dashboard) has examples. For an internet-facing
+  demo, `PUBLIC_DEMO=true` makes the registry read-only and limits the Playground to demo models.
 - API keys are encrypted with Fernet using a key derived from `SECRET_KEY`, never logged and never returned.
 - Production mode refuses the default or short `SECRET_KEY`.
 - Endpoint URLs must be http(s) without embedded credentials. Outbound requests do not follow redirects,

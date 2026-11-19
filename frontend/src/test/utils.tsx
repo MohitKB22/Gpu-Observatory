@@ -51,6 +51,10 @@ export const systemInfo: SystemInfo = {
   environment: 'test',
   demo_mode: true,
   default_data_source: 'all',
+  public_demo: false,
+  public_demo_source_url: null,
+  max_prompt_chars: 32_000,
+  max_tokens: 8192,
 };
 
 export function buildModel(overrides: Partial<Model> = {}): Model {

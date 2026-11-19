@@ -95,4 +95,15 @@ describe('Overview', () => {
     await user.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText('System health')).toBeInTheDocument();
   });
+
+  it('shows the public demo banner with a link to the source', async () => {
+    mockApi({
+      'GET /api/system/info': { ...systemInfo, public_demo: true, public_demo_source_url: 'https://github.com/example/repo' },
+      'GET /api/overview': overview(true),
+    });
+    renderWithProviders(<AppRoutes />);
+
+    expect(await screen.findByText('Public demo.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Source code/ })).toHaveAttribute('href', 'https://github.com/example/repo');
+  });
 });

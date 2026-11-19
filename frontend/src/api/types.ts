@@ -13,6 +13,10 @@ export interface SystemInfo {
   environment: string;
   demo_mode: boolean;
   default_data_source: DataSource;
+  public_demo: boolean;
+  public_demo_source_url: string | null;
+  max_prompt_chars: number;
+  max_tokens: number;
 }
 
 export interface Model {

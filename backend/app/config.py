@@ -30,6 +30,19 @@ class Settings(BaseSettings):
     demo_seed_history: bool = True
     demo_simulate_latency: bool = True
 
+    # Public demo deployments: the model registry is read-only and visitors can only run demo
+    # models, so the server never calls a URL a visitor supplied.
+    public_demo: bool = False
+    public_demo_source_url: str = ""  # shown in the UI as "run it yourself"
+    public_demo_requests_per_minute: int = Field(default=10, ge=1)  # per visitor IP
+    public_demo_global_requests_per_minute: int = Field(default=60, ge=1)  # all visitors together
+    public_demo_max_prompt_chars: int = Field(default=4000, ge=1)
+    public_demo_max_tokens: int = Field(default=1024, ge=1)
+    public_demo_kept_requests: int = Field(default=5000, ge=100)  # visitor runs kept in the database
+
+    # Serve the built frontend from this directory (single-container deployments). Empty = API only.
+    static_dir: str = ""
+
     health_check_interval_seconds: int = Field(default=60, ge=0)  # 0 disables the scheduler
     health_check_retention_days: int = Field(default=7, ge=1)
     system_sample_interval_seconds: float = Field(default=5.0, gt=0)

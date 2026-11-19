@@ -8,6 +8,11 @@ class SystemInfo(BaseModel):
     environment: str
     demo_mode: bool
     default_data_source: DataSource
+    public_demo: bool
+    public_demo_source_url: str | None
+    # Input limits the Playground should enforce (tighter in a public demo).
+    max_prompt_chars: int
+    max_tokens: int
 
 
 class HealthResponse(BaseModel):

@@ -22,6 +22,8 @@ async def test_health_and_system_info(client):
     assert info["demo_mode"] is False
     assert info["default_data_source"] == "real"
     assert info["environment"] == "test"
+    assert info["public_demo"] is False
+    assert (info["max_prompt_chars"], info["max_tokens"]) == (32_000, 8192)
 
 
 async def test_infrastructure_snapshot_reports_real_host_values(client):

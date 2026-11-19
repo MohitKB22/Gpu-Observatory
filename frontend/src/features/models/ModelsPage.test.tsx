@@ -113,4 +113,19 @@ describe('ModelsPage', () => {
 
     await waitFor(() => expect(calls.find((call) => call.method === 'PATCH')?.body).toEqual({ is_enabled: false }));
   });
+
+  it('is read-only in a public demo', async () => {
+    mockApi({
+      'GET /api/system/info': { ...systemInfo, public_demo: true },
+      'GET /api/models': [buildModel()],
+    });
+    renderWithProviders(<ModelsPage />);
+
+    expect(await screen.findByText(/This public demo shows the registry read-only/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check connection' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Register model' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit gpt-proxy' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete gpt-proxy' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+  });
 });

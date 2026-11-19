@@ -5,6 +5,7 @@ from sqlalchemy import text
 from app import __version__
 from app.api.deps import SessionDep, SettingsDep
 from app.schemas.common import DataSource
+from app.schemas.inference import MAX_PROMPT_CHARS, MAX_TOKENS
 from app.schemas.system import HealthResponse, SystemInfo
 
 router = APIRouter(prefix="/api", tags=["system"])
@@ -27,4 +28,8 @@ async def system_info(settings: SettingsDep) -> SystemInfo:
         environment=settings.app_env,
         demo_mode=settings.demo_mode,
         default_data_source=DataSource.ALL if settings.demo_mode else DataSource.REAL,
+        public_demo=settings.public_demo,
+        public_demo_source_url=settings.public_demo_source_url or None,
+        max_prompt_chars=settings.public_demo_max_prompt_chars if settings.public_demo else MAX_PROMPT_CHARS,
+        max_tokens=settings.public_demo_max_tokens if settings.public_demo else MAX_TOKENS,
     )

@@ -1,6 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
-from app.api.deps import ProvidersDep, SecretBoxDep, SessionDep
+from app.api.deps import ProvidersDep, SecretBoxDep, SessionDep, SettingsDep
+from app.api.public_demo import check_public_demo_inference
 from app.schemas.common import ErrorResponse
 from app.schemas.inference import InferenceCreate, InferenceRequestRead
 from app.services import inference_service, model_service
@@ -14,7 +15,12 @@ router = APIRouter(prefix="/api/inference", tags=["inference"])
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
 )
 async def run_inference(
-    payload: InferenceCreate, session: SessionDep, providers: ProvidersDep, secret_box: SecretBoxDep
+    request: Request,
+    payload: InferenceCreate,
+    session: SessionDep,
+    providers: ProvidersDep,
+    secret_box: SecretBoxDep,
+    settings: SettingsDep,
 ):
     """Run a completion against a registered model and record it.
 
@@ -23,4 +29,9 @@ async def run_inference(
     Requests that never reach the provider (unknown or disabled model, invalid input) return 4xx.
     """
     model = await model_service.get_model(session, payload.model_id)
-    return await inference_service.run_inference(session, model, payload, providers, secret_box, payload.source)
+    if settings.public_demo:
+        check_public_demo_inference(request, settings, model, payload)
+    record = await inference_service.run_inference(session, model, payload, providers, secret_box, payload.source)
+    if settings.public_demo:
+        await inference_service.prune_visitor_requests(session, keep=settings.public_demo_kept_requests)
+    return record

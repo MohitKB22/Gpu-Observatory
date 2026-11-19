@@ -1,5 +1,6 @@
 # Deployment guide
 
+- [Public demo on Render + Neon (free)](#public-demo-on-render--neon-free)
 - [Single host with Docker Compose](#single-host-with-docker-compose)
 - [Going to production](#going-to-production)
 - [Protecting the dashboard](#protecting-the-dashboard)
@@ -10,6 +11,30 @@
 - [Prometheus](#prometheus)
 - [Operations](#operations)
 - [Verification status](#verification-status)
+
+## Public demo on Render + Neon (free)
+
+A locked, internet-facing demo for $0/month: one Render free web service runs the root `Dockerfile`
+(dashboard and API in one container, one URL) and Neon's free plan provides PostgreSQL.
+
+1. **Database (Neon).** At [neon.com](https://neon.com), create a project (region: *AWS Asia Pacific
+   (Singapore)*, next to the Render region in `render.yaml`). On the project dashboard click **Connect**,
+   turn **Connection pooling off**, and copy the connection string
+   (`postgresql://…@ep-….neon.tech/neondb?sslmode=require`).
+2. **App (Render).** Click **Deploy to Render** in the README (or *New → Blueprint* in Render and pick this
+   repository). Render reads `render.yaml`, asks for `DATABASE_URL`, so paste the Neon string, and
+   generates `SECRET_KEY` itself. Click **Apply**.
+3. **First start.** The build takes a few minutes. On start the container runs migrations, registers the
+   demo models and seeds labelled sample history. Render's health check uses `/api/health`.
+
+What `render.yaml` sets: `PUBLIC_DEMO=true` (read-only registry, demo-only Playground, input limits, rate
+limits, bounded storage), `DEMO_MODE=true`, `APP_ENV=production`, health checks every 5 minutes so Neon can
+scale to zero between visits, a small connection pool, and `autoDeployTrigger: checksPass`, so each push to
+`main` redeploys only after CI passes.
+
+Free-tier behaviour to expect: the web service sleeps after about 15 idle minutes, and the first visit
+after that takes up to a minute while it wakes. Neon's free plan gives each project 1 GB of storage and
+100 compute-hours a month. The utilisation history on the Infrastructure page starts again after each sleep.
 
 ## Single host with Docker Compose
 
@@ -70,6 +95,9 @@ stored credentials, and read prompts and responses. Choose one of:
 
    For SSO, use oauth2-proxy, Cloudflare Access, Tailscale Serve or your ingress controller's auth.
 3. Only set `BIND_ADDRESS=0.0.0.0` when one of the above protects the ports.
+4. **Public demo:** `PUBLIC_DEMO=true` makes the registry read-only and limits the Playground to demo models,
+   which is safe to expose without a login (this is what `render.yaml` uses). It cannot be used with real
+   endpoints.
 
 Leave `BACKEND_PORT` unpublished (or bound to localhost) in production unless Prometheus needs it; the
 frontend container already proxies `/api` internally.
@@ -209,18 +237,19 @@ What was executed while building this release, and what was not:
 
 | Check | Result |
 |---|---|
-| Backend tests against PostgreSQL 16 | 102 passed on Python 3.12 (the Docker image's version), 3.13 and 3.14 |
+| Backend tests against PostgreSQL 16 | 115 passed on Python 3.13; earlier releases also on 3.12 and 3.14 |
 | Local-development path (Homebrew-style role and database, default settings, no `.env`) | migrations and the full test suite run with no environment variables; the test database is created automatically |
 | Backend lint/format (ruff) | clean |
 | Alembic upgrade → downgrade → upgrade on PostgreSQL 16 | passed; a test confirms migrations match the ORM |
 | Backend image steps (fresh Python 3.12 env, `requirements.txt` only, real `docker-entrypoint.sh` against an empty database, Dockerfile HEALTHCHECK command) | passed |
-| Frontend tests (Vitest) | 32 passed |
+| Frontend tests (Vitest) | 35 passed |
 | Frontend typecheck (strict), ESLint, production build | clean |
 | Frontend image steps (clean `npm ci` + `npm run build`) | passed |
 | nginx config (template rendered as the nginx image does, `nginx -t`, SPA routing, `/api` proxy, headers, asset caching) | passed |
 | Browser end-to-end walk through all six modules in headless Chrome, via nginx with the CSP enforced, desktop and 390 px mobile | passed, no console errors, no horizontal scroll on mobile |
 | `docker compose config` (base and GPU override) | valid |
-| **`docker compose up --build` itself** | **Not executed.** The build environment's network policy blocked all container registries (Docker Hub, GCR mirror, ECR Public), so base images could not be pulled. Every step inside the images was run natively instead (rows above). |
-| GitHub Actions workflow | Included, not run |
+| Docker image builds | `docker compose build` passed in GitHub Actions (PR #1). The build sandbox itself could not pull base images, so `docker compose up` was not run there; every step inside the images was run natively instead (rows above). |
+| GitHub Actions workflow | Passed on PR #1 (backend, frontend, docker) |
+| Single-container public demo (root `Dockerfile` steps, Render-style settings: port 10000, `STATIC_DIR`, `PUBLIC_DEMO`, `postgresql://…?sslmode=` URL) | Migrations, seeding, health check and every page passed in headless Chrome with no console errors; registering a cloud-metadata URL was refused with 403 |
 | Real GPU telemetry (NVML / nvidia-smi) | Not exercised: no GPU in the build environment. Parsing is unit-tested; the "unavailable" path was verified live. |
 | Live third-party endpoints (OpenAI, HF, vLLM) | Not called (no credentials). Provider request/response handling is tested against recorded payload shapes with a mock transport; a real connection failure was verified live in the browser. |

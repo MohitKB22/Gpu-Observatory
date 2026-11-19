@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query, Response, status
 
 from app.api.deps import ProvidersDep, SecretBoxDep, SessionDep
+from app.api.public_demo import RegistryWritable
 from app.schemas.common import ErrorResponse
 from app.schemas.models import ConnectionCheckResponse, HealthCheckRead, ModelCreate, ModelRead, ModelUpdate
 from app.services import health_service, model_service
@@ -19,7 +20,7 @@ async def list_models(session: SessionDep):
 @router.post(
     "", response_model=ModelRead, status_code=status.HTTP_201_CREATED, responses={409: {"model": ErrorResponse}}
 )
-async def create_model(payload: ModelCreate, session: SessionDep, secret_box: SecretBoxDep):
+async def create_model(payload: ModelCreate, session: SessionDep, secret_box: SecretBoxDep, _: RegistryWritable):
     return await model_service.create_model(session, payload, secret_box)
 
 
@@ -29,13 +30,15 @@ async def get_model(model_id: uuid.UUID, session: SessionDep):
 
 
 @router.patch("/{model_id}", response_model=ModelRead, responses={409: {"model": ErrorResponse}})
-async def update_model(model_id: uuid.UUID, payload: ModelUpdate, session: SessionDep, secret_box: SecretBoxDep):
+async def update_model(
+    model_id: uuid.UUID, payload: ModelUpdate, session: SessionDep, secret_box: SecretBoxDep, _: RegistryWritable
+):
     model = await model_service.get_model(session, model_id)
     return await model_service.update_model(session, model, payload, secret_box)
 
 
 @router.delete("/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_model(model_id: uuid.UUID, session: SessionDep) -> Response:
+async def delete_model(model_id: uuid.UUID, session: SessionDep, _: RegistryWritable) -> Response:
     model = await model_service.get_model(session, model_id)
     await model_service.delete_model(session, model)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

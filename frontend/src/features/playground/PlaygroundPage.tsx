@@ -10,13 +10,16 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Field, Input, Select, Textarea } from '@/components/ui/Form';
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/States';
+import { useDataSource } from '@/context/DataSourceContext';
 import { useApiQuery } from '@/hooks/useApiQuery';
 import { describedBy } from '@/lib/a11y';
 import { PROVIDERS } from '@/lib/constants';
 import { RecentRuns } from './RecentRuns';
 import { ResponsePanel } from './ResponsePanel';
 
-const MAX_PROMPT_CHARS = 32_000;
+// Fallbacks until /api/system/info arrives; the backend enforces its own limits either way.
+const DEFAULT_MAX_PROMPT_CHARS = 32_000;
+const DEFAULT_MAX_TOKENS = 8192;
 
 interface PlaygroundSettings {
   modelId: string;
@@ -28,6 +31,9 @@ interface PlaygroundSettings {
 
 export default function PlaygroundPage() {
   const formId = useId();
+  const { systemInfo } = useDataSource();
+  const maxPromptChars = systemInfo?.max_prompt_chars ?? DEFAULT_MAX_PROMPT_CHARS;
+  const maxTokensLimit = systemInfo?.max_tokens ?? DEFAULT_MAX_TOKENS;
   const models = useApiQuery(listModels, []);
   const [runsRevision, setRunsRevision] = useState(0);
   const recentRuns = useApiQuery(
@@ -65,7 +71,10 @@ export default function PlaygroundPage() {
     const next = {
       modelId: selectedModelId ? undefined : 'Choose a model.',
       prompt: settings.prompt.trim() ? undefined : 'Enter a prompt.',
-      maxTokens: Number.isInteger(maxTokens) && maxTokens >= 1 && maxTokens <= 8192 ? undefined : 'Use a whole number from 1 to 8192.',
+      maxTokens:
+        Number.isInteger(maxTokens) && maxTokens >= 1 && maxTokens <= maxTokensLimit
+          ? undefined
+          : `Use a whole number from 1 to ${maxTokensLimit}.`,
     };
     setErrors(next);
     return !next.modelId && !next.prompt && !next.maxTokens;
@@ -186,7 +195,7 @@ export default function PlaygroundPage() {
                 label="Prompt"
                 required
                 error={errors.prompt}
-                hint={`${settings.prompt.length.toLocaleString()} / ${MAX_PROMPT_CHARS.toLocaleString()} characters · Ctrl+Enter to run`}
+                hint={`${settings.prompt.length.toLocaleString()} / ${maxPromptChars.toLocaleString()} characters · Ctrl+Enter to run`}
               >
                 <Textarea
                   id={fieldId('prompt')}
@@ -196,7 +205,7 @@ export default function PlaygroundPage() {
                   invalid={Boolean(errors.prompt)}
                   aria-describedby={describedBy(fieldId('prompt'), errors.prompt, true)}
                   rows={8}
-                  maxLength={MAX_PROMPT_CHARS}
+                  maxLength={maxPromptChars}
                   placeholder="Explain the difference between P95 and P99 latency."
                   className="font-mono text-xs"
                 />
@@ -232,7 +241,7 @@ export default function PlaygroundPage() {
                     id={fieldId('max-tokens')}
                     type="number"
                     min={1}
-                    max={8192}
+                    max={maxTokensLimit}
                     step={1}
                     value={settings.maxTokens}
                     onChange={(event) => update('maxTokens', event.target.value)}
