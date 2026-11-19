@@ -7,6 +7,10 @@ errors, connection health and serving infrastructure, all from requests the plat
 It runs fully offline in **demo mode** (no GPU, no paid API) and switches to **real mode** by registering
 real endpoints. Demo data is labelled everywhere it appears and can be excluded with one switch.
 
+**Live demo:** https://ai-inference-observatory-8dp7.onrender.com. It is a locked public demo that runs on demo
+data only, so every figure it shows is labelled sample data, not production metrics. It runs on a free instance
+that sleeps when idle, so the first load can take about a minute.
+
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/MohitKB22/Gpu-Observatory)
 
 ![Overview](docs/screenshots/overview.png)
@@ -89,6 +93,9 @@ Ports bind to `127.0.0.1` by default because the dashboard has no built-in login
 (see [Security](#security)).
 
 ## Public demo deployment
+
+The live instance is at https://ai-inference-observatory-8dp7.onrender.com (Render free web service in
+Singapore, Neon free PostgreSQL).
 
 `render.yaml` deploys a locked public demo on free tiers: one Render web service (the root `Dockerfile`
 builds the dashboard and serves it from the API process) plus a free Neon PostgreSQL database. Click
@@ -341,7 +348,7 @@ same server and with the same credentials as local development, and creates it o
 `observatory` role from step 1 has `CREATEDB`). To use another database, set `TEST_DATABASE_URL`. Its name
 must contain `test`, because every run drops and re-migrates all of its tables; the suite refuses any other name.
 
-**Backend (115 tests, PostgreSQL 16):** model CRUD, validation, duplicate names, encrypted keys,
+**Backend (119 tests, PostgreSQL 16):** model CRUD, validation, duplicate names, encrypted keys,
 connection checks (healthy, auth failure, unreachable); inference through demo, OpenAI-compatible,
 vLLM and Hugging Face providers with a mocked transport, covering exact and estimated tokens, upstream
 HTTP errors, timeouts, malformed responses and disabled models; analytics percentiles against hand-computed

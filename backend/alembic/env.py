@@ -1,11 +1,11 @@
 from logging.config import fileConfig
 
 from sqlalchemy import create_engine, pool
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import ArgumentError, DBAPIError
 
 import app.models  # noqa: F401  (registers tables on Base.metadata)
 from alembic import context
-from app.config import get_settings
+from app.config import DATABASE_URL_HINT, get_settings
 from app.db.base import Base
 from app.db.connectivity import database_unavailable_message
 
@@ -36,7 +36,11 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     # psycopg 3 serves both sync and async, so the same URL works for migrations.
     url = _database_url()
-    engine = create_engine(url, poolclass=pool.NullPool)
+    try:
+        engine = create_engine(url, poolclass=pool.NullPool)
+    except ArgumentError:
+        # The URL itself is never echoed: it may contain a password.
+        raise SystemExit(f"DATABASE_URL is not a valid database URL; {DATABASE_URL_HINT}") from None
     try:
         connection = engine.connect()
     except DBAPIError as exc:

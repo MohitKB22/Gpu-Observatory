@@ -50,3 +50,12 @@ def test_migrations_exit_with_a_clear_error_when_the_database_is_down():
         command.upgrade(alembic_config(UNREACHABLE_URL), "head")
 
     assert str(exit_info.value).startswith("Cannot connect to PostgreSQL at 127.0.0.1:1/observatory")
+
+
+def test_migrations_exit_with_a_clear_error_when_the_url_is_malformed():
+    with pytest.raises(SystemExit) as exit_info:
+        command.upgrade(alembic_config("not a url s3cret"), "head")
+
+    message = str(exit_info.value)
+    assert message.startswith("DATABASE_URL is not a valid database URL")
+    assert "s3cret" not in message

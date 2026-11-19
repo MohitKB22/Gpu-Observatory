@@ -237,7 +237,7 @@ What was executed while building this release, and what was not:
 
 | Check | Result |
 |---|---|
-| Backend tests against PostgreSQL 16 | 115 passed on Python 3.13; earlier releases also on 3.12 and 3.14 |
+| Backend tests against PostgreSQL 16 | 119 passed on Python 3.13; earlier releases also on 3.12 and 3.14 |
 | Local-development path (Homebrew-style role and database, default settings, no `.env`) | migrations and the full test suite run with no environment variables; the test database is created automatically |
 | Backend lint/format (ruff) | clean |
 | Alembic upgrade → downgrade → upgrade on PostgreSQL 16 | passed; a test confirms migrations match the ORM |
@@ -251,5 +251,6 @@ What was executed while building this release, and what was not:
 | Docker image builds | `docker compose build` passed in GitHub Actions (PR #1). The build sandbox itself could not pull base images, so `docker compose up` was not run there; every step inside the images was run natively instead (rows above). |
 | GitHub Actions workflow | Passed on PR #1 (backend, frontend, docker) |
 | Single-container public demo (root `Dockerfile` steps, Render-style settings: port 10000, `STATIC_DIR`, `PUBLIC_DEMO`, `postgresql://…?sslmode=` URL) | Migrations, seeding, health check and every page passed in headless Chrome with no console errors; registering a cloud-metadata URL was refused with 403 |
+| Live public demo: [ai-inference-observatory-8dp7.onrender.com](https://ai-inference-observatory-8dp7.onrender.com) (Render free web service, Singapore; Neon free PostgreSQL 18, Singapore, direct connection) | Deployed 2026-11-19 from the Blueprint. Migrations and the labelled demo seed ran; `/api/health` reports the database ok; every page loads; registering a model returns 403; a demo Playground run returns 200 and is stored as demo data with an estimated token count; GPU shows as unavailable |
 | Real GPU telemetry (NVML / nvidia-smi) | Not exercised: no GPU in the build environment. Parsing is unit-tested; the "unavailable" path was verified live. |
 | Live third-party endpoints (OpenAI, HF, vLLM) | Not called (no credentials). Provider request/response handling is tested against recorded payload shapes with a mock transport; a real connection failure was verified live in the browser. |

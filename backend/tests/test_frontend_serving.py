@@ -37,6 +37,13 @@ async def test_client_routes_get_the_app_shell_with_security_headers(static_clie
         assert response.headers["x-frame-options"] == "DENY"
 
 
+async def test_head_requests_from_uptime_probes_succeed(static_client):
+    for path in ("/", "/models"):
+        response = await static_client.head(path)
+        assert response.status_code == 200
+        assert response.text == ""
+
+
 async def test_assets_and_root_files_are_served(static_client):
     asset = await static_client.get("/assets/app-abc123.js")
     favicon = await static_client.get("/favicon.svg")

@@ -121,6 +121,12 @@ def test_settings_normalise_database_url():
     assert settings.database_url == "postgresql+psycopg://u:p@db:5432/obs"
 
 
+@pytest.mark.parametrize("value", ["", "   "])
+def test_settings_reject_an_empty_database_url(value):
+    with pytest.raises(ValueError, match="DATABASE_URL is empty"):
+        Settings(_env_file=None, database_url=value)
+
+
 def test_production_requires_a_real_secret_key():
     with pytest.raises(ValueError, match="SECRET_KEY"):
         Settings(_env_file=None, app_env="production")

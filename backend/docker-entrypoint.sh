@@ -2,6 +2,12 @@
 # Apply migrations (retrying while the database starts), then serve the API.
 set -e
 
+# Retrying cannot fix a missing value, so stop at once with a clear message.
+if [ -n "${DATABASE_URL+set}" ] && [ -z "$(echo "$DATABASE_URL" | tr -d '[:space:]')" ]; then
+  echo "DATABASE_URL is empty; set it to a PostgreSQL connection string such as postgresql://user:password@host:5432/dbname" >&2
+  exit 1
+fi
+
 if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
   attempt=1
   until alembic upgrade head; do

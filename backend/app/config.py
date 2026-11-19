@@ -7,6 +7,7 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 INSECURE_DEFAULT_SECRET = "change-me-in-production"
+DATABASE_URL_HINT = "set it to a PostgreSQL connection string such as postgresql://user:password@host:5432/dbname"
 
 
 class Settings(BaseSettings):
@@ -57,6 +58,9 @@ class Settings(BaseSettings):
     def use_psycopg_driver(cls, value: str) -> str:
         # Hosted Postgres providers usually hand out postgres:// or postgresql:// URLs.
         # SQLAlchemy needs the driver named explicitly; psycopg 3 serves both sync and async.
+        value = value.strip()
+        if not value:
+            raise ValueError(f"DATABASE_URL is empty; {DATABASE_URL_HINT}")
         for prefix in ("postgres://", "postgresql://"):
             if value.startswith(prefix):
                 return "postgresql+psycopg://" + value[len(prefix) :]

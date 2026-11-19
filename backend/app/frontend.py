@@ -42,7 +42,8 @@ def mount_frontend(app: FastAPI, directory: str) -> None:
     app.mount("/assets", ImmutableStaticFiles(directory=root / "assets"), name="assets")
 
     # Registered after every API route, so it only receives paths nothing else matched.
-    @app.get("/{path:path}", include_in_schema=False)
+    # HEAD is allowed because hosting probes and uptime monitors check pages with it.
+    @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def single_page_app(path: str) -> FileResponse:
         if path == "api" or path.startswith("api/"):
             raise NotFoundError("Not found")
